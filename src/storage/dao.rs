@@ -4,7 +4,6 @@ use rusqlite::{params, Connection, Row};
 
 use crate::core::models::*;
 use crate::core::Error;
-use crate::storage::queries;
 
 /// Note DAO
 pub struct NoteDao;
@@ -13,7 +12,10 @@ impl NoteDao {
     /// Create a new note
     pub fn create(conn: &Connection, note: &Note) -> Result<(), Error> {
         conn.execute(
-            queries::notes::CREATE,
+            r#"
+            INSERT INTO notes (id, title, content_path, created_at, updated_at, word_count, is_deleted, deleted_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
             params![
                 note.id,
                 note.title,
@@ -30,13 +32,12 @@ impl NoteDao {
 
     /// Get a note by ID
     pub fn get_by_id(conn: &Connection, id: &str, include_deleted: bool) -> Result<Option<Note>, Error> {
-        let query = if include_deleted {
-            queries::notes::SELECT_BY_ID_INCLUDE_DELETED
-        } else {
-            queries::notes::SELECT_BY_ID_NOT_DELETED
-        };
+        let mut query = "SELECT id, title, content_path, created_at, updated_at, word_count, is_deleted, deleted_at FROM notes WHERE id = ?1".to_string();
+        if !include_deleted {
+            query.push_str(" AND is_deleted = 0");
+        }
 
-        let mut stmt = conn.prepare(query)?;
+        let mut stmt = conn.prepare(&query)?;
         let mut rows = stmt.query_map(params![id], |row| Self::row_to_note(row))?;
 
         match rows.next() {
@@ -49,7 +50,11 @@ impl NoteDao {
     /// Update a note
     pub fn update(conn: &Connection, note: &Note) -> Result<(), Error> {
         conn.execute(
-            queries::notes::UPDATE,
+            r#"
+            UPDATE notes
+            SET title = ?2, content_path = ?3, updated_at = ?4, word_count = ?5, is_deleted = ?6, deleted_at = ?7
+            WHERE id = ?1
+            "#,
             params![
                 note.id,
                 note.title,
@@ -66,25 +71,31 @@ impl NoteDao {
     /// Soft delete a note
     pub fn soft_delete(conn: &Connection, id: &str) -> Result<(), Error> {
         let deleted_at = chrono::Utc::now().timestamp();
-        conn.execute(queries::notes::SOFT_DELETE, params![id, deleted_at])?;
+        conn.execute(
+            "UPDATE notes SET is_deleted = 1, deleted_at = ?2 WHERE id = ?1",
+            params![id, deleted_at],
+        )?;
         Ok(())
     }
 
     /// Restore a soft-deleted note
     pub fn restore(conn: &Connection, id: &str) -> Result<(), Error> {
-        conn.execute(queries::notes::RESTORE, params![id])?;
+        conn.execute(
+            "UPDATE notes SET is_deleted = 0, deleted_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
         Ok(())
     }
 
     /// List all notes (excluding deleted by default)
     pub fn list(conn: &Connection, include_deleted: bool) -> Result<Vec<Note>, Error> {
-        let query = if include_deleted {
-            queries::notes::SELECT_ALL_INCLUDE_DELETED
-        } else {
-            queries::notes::SELECT_ALL
-        };
+        let mut query = "SELECT id, title, content_path, created_at, updated_at, word_count, is_deleted, deleted_at FROM notes".to_string();
+        if !include_deleted {
+            query.push_str(" WHERE is_deleted = 0");
+        }
+        query.push_str(" ORDER BY updated_at DESC");
 
-        let mut stmt = conn.prepare(query)?;
+        let mut stmt = conn.prepare(&query)?;
         let rows = stmt.query_map([], |row| Self::row_to_note(row))?;
 
         let mut notes = Vec::new();
@@ -96,14 +107,14 @@ impl NoteDao {
 
     /// Search notes by title
     pub fn search_by_title(conn: &Connection, query: &str, include_deleted: bool) -> Result<Vec<Note>, Error> {
-        let sql = if include_deleted {
-            queries::notes::SEARCH_BY_TITLE_INCLUDE_DELETED
-        } else {
-            queries::notes::SEARCH_BY_TITLE
-        };
+        let mut sql = "SELECT id, title, content_path, created_at, updated_at, word_count, is_deleted, deleted_at FROM notes WHERE title LIKE ?1".to_string();
+        if !include_deleted {
+            sql.push_str(" AND is_deleted = 0");
+        }
+        sql.push_str(" ORDER BY updated_at DESC");
 
         let search_pattern = format!("%{}%", query);
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![search_pattern], |row| Self::row_to_note(row))?;
 
         let mut notes = Vec::new();
@@ -115,13 +126,19 @@ impl NoteDao {
 
     /// Get notes by folder ID
     pub fn get_by_folder(conn: &Connection, folder_id: &str, include_deleted: bool) -> Result<Vec<Note>, Error> {
-        let query = if include_deleted {
-            queries::notes::SELECT_BY_FOLDER_INCLUDE_DELETED
-        } else {
-            queries::notes::SELECT_BY_FOLDER
-        };
+        let mut query = r#"
+            SELECT n.id, n.title, n.content_path, n.created_at, n.updated_at, n.word_count, n.is_deleted, n.deleted_at
+            FROM notes n
+            INNER JOIN note_folders nf ON n.id = nf.note_id
+            WHERE nf.folder_id = ?1
+        "#
+        .to_string();
+        if !include_deleted {
+            query.push_str(" AND n.is_deleted = 0");
+        }
+        query.push_str(" ORDER BY nf.position, n.updated_at DESC");
 
-        let mut stmt = conn.prepare(query)?;
+        let mut stmt = conn.prepare(&query)?;
         let rows = stmt.query_map(params![folder_id], |row| Self::row_to_note(row))?;
 
         let mut notes = Vec::new();

@@ -5,9 +5,9 @@
 mod database;
 mod db_manager;
 mod dao;
-mod queries;
+mod relation_dao;
 
 pub use database::init_database;
 pub use db_manager::DatabaseManager;
 pub use dao::*;
-pub use queries::*;
+pub use relation_dao::*;
