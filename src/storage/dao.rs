@@ -563,10 +563,268 @@ impl AttachmentDao {
     }
 }
 
+/// Link DAO
+pub struct LinkDao;
+
+impl LinkDao {
+    /// Create a new link
+    pub fn create(conn: &Connection, link: &Link) -> Result<(), Error> {
+        conn.execute(
+            r#"
+            INSERT INTO links (id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                link.id,
+                link.source_note_id,
+                link.target_note_id,
+                link.source_block_id,
+                link.target_block_id,
+                link.link_type,
+                link.link_text,
+                link.created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get a link by ID
+    pub fn get_by_id(conn: &Connection, id: &str) -> Result<Option<Link>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at FROM links WHERE id = ?1"
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| Self::row_to_link(row))?;
+
+        match rows.next() {
+            Some(Ok(link)) => Ok(Some(link)),
+            Some(Err(e)) => Err(Error::Database(e)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get all links from a note (outgoing links)
+    pub fn get_outgoing_links(conn: &Connection, note_id: &str) -> Result<Vec<Link>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at FROM links WHERE source_note_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![note_id], |row| Self::row_to_link(row))?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
+    }
+
+    /// Get all links to a note (incoming links)
+    pub fn get_incoming_links(conn: &Connection, note_id: &str) -> Result<Vec<Link>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at FROM links WHERE target_note_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![note_id], |row| Self::row_to_link(row))?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
+    }
+
+    /// Get all links from a block
+    pub fn get_links_from_block(conn: &Connection, block_id: &str) -> Result<Vec<Link>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at FROM links WHERE source_block_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![block_id], |row| Self::row_to_link(row))?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
+    }
+
+    /// Get all links to a block
+    pub fn get_links_to_block(conn: &Connection, block_id: &str) -> Result<Vec<Link>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_note_id, target_note_id, source_block_id, target_block_id, link_type, link_text, created_at FROM links WHERE target_block_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![block_id], |row| Self::row_to_link(row))?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row?);
+        }
+        Ok(links)
+    }
+
+    /// Delete a link
+    pub fn delete(conn: &Connection, id: &str) -> Result<(), Error> {
+        conn.execute("DELETE FROM links WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Delete all links from a note
+    pub fn delete_outgoing_links(conn: &Connection, note_id: &str) -> Result<(), Error> {
+        conn.execute("DELETE FROM links WHERE source_note_id = ?1", params![note_id])?;
+        Ok(())
+    }
+
+    /// Delete all links to a note
+    pub fn delete_incoming_links(conn: &Connection, note_id: &str) -> Result<(), Error> {
+        conn.execute("DELETE FROM links WHERE target_note_id = ?1", params![note_id])?;
+        Ok(())
+    }
+
+    fn row_to_link(row: &Row) -> rusqlite::Result<Link> {
+        Ok(Link {
+            id: row.get(0)?,
+            source_note_id: row.get(1)?,
+            target_note_id: row.get(2)?,
+            source_block_id: row.get(3)?,
+            target_block_id: row.get(4)?,
+            link_type: row.get(5)?,
+            link_text: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    }
+}
+
+/// Block Reference DAO
+pub struct BlockReferenceDao;
+
+impl BlockReferenceDao {
+    /// Create a new block reference
+    pub fn create(conn: &Connection, id: &str, source_block_id: &str, target_block_id: &str) -> Result<(), Error> {
+        let created_at = chrono::Utc::now().timestamp();
+        conn.execute(
+            "INSERT INTO block_references (id, source_block_id, target_block_id, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, source_block_id, target_block_id, created_at],
+        )?;
+        Ok(())
+    }
+
+    /// Get all blocks that reference a block
+    pub fn get_referencing_blocks(conn: &Connection, block_id: &str) -> Result<Vec<String>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT source_block_id FROM block_references WHERE target_block_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![block_id], |row| row.get(0))?;
+
+        let mut blocks = Vec::new();
+        for row in rows {
+            blocks.push(row?);
+        }
+        Ok(blocks)
+    }
+
+    /// Get all blocks referenced by a block
+    pub fn get_referenced_blocks(conn: &Connection, block_id: &str) -> Result<Vec<String>, Error> {
+        let mut stmt = conn.prepare(
+            "SELECT target_block_id FROM block_references WHERE source_block_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![block_id], |row| row.get(0))?;
+
+        let mut blocks = Vec::new();
+        for row in rows {
+            blocks.push(row?);
+        }
+        Ok(blocks)
+    }
+
+    /// Delete a block reference
+    pub fn delete(conn: &Connection, source_block_id: &str, target_block_id: &str) -> Result<(), Error> {
+        conn.execute(
+            "DELETE FROM block_references WHERE source_block_id = ?1 AND target_block_id = ?2",
+            params![source_block_id, target_block_id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete all references from a block
+    pub fn delete_references_from(conn: &Connection, block_id: &str) -> Result<(), Error> {
+        conn.execute(
+            "DELETE FROM block_references WHERE source_block_id = ?1",
+            params![block_id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete all references to a block
+    pub fn delete_references_to(conn: &Connection, block_id: &str) -> Result<(), Error> {
+        conn.execute(
+            "DELETE FROM block_references WHERE target_block_id = ?1",
+            params![block_id],
+        )?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::DatabaseManager;
+
+    #[test]
+    fn test_link_dao() {
+        let db = DatabaseManager::in_memory().unwrap();
+        let conn = db.conn();
+
+        // Create test notes
+        use crate::core::models::Note;
+        let note1 = Note::new("note-1".to_string(), "Note 1".to_string(), "notes/note1.md".to_string());
+        let note2 = Note::new("note-2".to_string(), "Note 2".to_string(), "notes/note2.md".to_string());
+        NoteDao::create(conn, &note1).unwrap();
+        NoteDao::create(conn, &note2).unwrap();
+
+        // Create a link
+        let link = Link::new_note_link(
+            "link-1".to_string(),
+            "note-1".to_string(),
+            "note-2".to_string(),
+            Some("Link text".to_string()),
+        );
+        LinkDao::create(conn, &link).unwrap();
+
+        // Get outgoing links
+        let outgoing = LinkDao::get_outgoing_links(conn, "note-1").unwrap();
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0].target_note_id, Some("note-2".to_string()));
+
+        // Get incoming links
+        let incoming = LinkDao::get_incoming_links(conn, "note-2").unwrap();
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0].source_note_id, "note-1".to_string());
+    }
+
+    #[test]
+    fn test_block_reference_dao() {
+        let db = DatabaseManager::in_memory().unwrap();
+        let conn = db.conn();
+
+        // Create test note and blocks
+        use crate::core::models::{Note, Block};
+        let note = Note::new("note-1".to_string(), "Test".to_string(), "notes/test.md".to_string());
+        NoteDao::create(conn, &note).unwrap();
+
+        let block1 = Block::new("block-1".to_string(), "note-1".to_string(), "paragraph".to_string(), "Content 1".to_string(), 0);
+        let block2 = Block::new("block-2".to_string(), "note-1".to_string(), "paragraph".to_string(), "Content 2".to_string(), 1);
+        BlockDao::create(conn, &block1).unwrap();
+        BlockDao::create(conn, &block2).unwrap();
+
+        // Create a block reference
+        BlockReferenceDao::create(conn, "ref-1", "block-1", "block-2").unwrap();
+
+        // Get referencing blocks
+        let referencing = BlockReferenceDao::get_referencing_blocks(conn, "block-2").unwrap();
+        assert_eq!(referencing.len(), 1);
+        assert_eq!(referencing[0], "block-1");
+
+        // Get referenced blocks
+        let referenced = BlockReferenceDao::get_referenced_blocks(conn, "block-1").unwrap();
+        assert_eq!(referenced.len(), 1);
+        assert_eq!(referenced[0], "block-2");
+    }
 
     #[test]
     fn test_note_dao() {
