@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import './style.css';
 
 // Initialize the application
@@ -14,6 +14,9 @@ async function init() {
       </header>
       <main style="flex: 1; padding: 1rem;">
         <p>Editor will be integrated here with CodeMirror 6</p>
+        <div id="status" style="margin-top: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px;">
+          <small>Status: Ready</small>
+        </div>
       </main>
     `;
   }
@@ -22,8 +25,16 @@ async function init() {
   try {
     const greeting = await invoke<string>('greet', { name: 'Synapse' });
     console.log(greeting);
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+      statusEl.innerHTML = `<small>Status: ${greeting}</small>`;
+    }
   } catch (error) {
     console.error('Error calling Tauri command:', error);
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+      statusEl.innerHTML = `<small style="color: red;">Error: ${error}</small>`;
+    }
   }
 }
 

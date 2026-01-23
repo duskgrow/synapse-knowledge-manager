@@ -25,9 +25,13 @@ Synapse Knowledge Manager (Synapse) is a powerful, local-first knowledge managem
 
 This project is currently in early development. The MVP is being built with the following core features:
 
-- [ ] Local storage (SQLite)
-- [ ] Markdown editor (CodeMirror 6 + Vim mode)
-- [ ] Note management (CRUD)
+- [x] Local storage (SQLite) - ✅ Database schema and DAO layer completed
+- [x] Business logic layer - ✅ All core services implemented
+- [x] Markdown parser and renderer - ✅ Backend parsing/rendering completed
+- [x] Tauri application structure - ✅ Tauri 2.0 setup completed
+- [x] CLI tool for headless development - ✅ Testing tool completed
+- [ ] Markdown editor (CodeMirror 6 + Vim mode) - 🔄 Frontend integration pending
+- [ ] Note management UI (CRUD) - 🔄 Frontend integration pending
 - [ ] Basic search
 - [ ] Basic UI
 
@@ -85,6 +89,27 @@ cargo test
 # Run the application
 cargo run
 ```
+
+### Development without GUI
+
+If you're developing on a headless Linux system (no GUI), you can use the CLI tool to test backend functionality:
+
+```bash
+# Create a note
+cargo run --bin synapse-cli -- create-note "Title" "Content"
+
+# List all notes
+cargo run --bin synapse-cli -- list-notes
+
+# Search notes
+cargo run --bin synapse-cli -- create-tag "Rust"
+cargo run --bin synapse-cli -- list-tags
+
+# See all commands
+cargo run --bin synapse-cli
+```
+
+The CLI tool allows you to test all backend functionality without needing a GUI environment. For full UI testing, you'll need a system with GUI support (see [README-TAURI.md](./README-TAURI.md)).
 
 ### Project Structure
 

@@ -40,3 +40,8 @@ pulldown-cmark = "0.13.0"
 
 # CRDT (for future use)
 # loro = "0.5"
+
+[[bin]]
+name = "synapse-cli"
+path = "src/bin/cli.rs"
+doc = false
