@@ -29,5 +29,11 @@ rusqlite = { version = "0.38.0", features = ["bundled", "backup", "blob", "funct
 # UUID generation
 uuid = { version = "1.19.0", features = ["v4"] }
 
+# Cryptography (for SHA-256 hashing)
+sha2 = "0.10"
+
+# MIME type detection
+mime_guess = "2.0"
+
 # CRDT (for future use)
 # loro = "0.5"

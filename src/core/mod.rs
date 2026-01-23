@@ -15,4 +15,5 @@ pub use services::{
     LinkService,
     SearchService,
     BlockService,
+    AttachmentService,
 };

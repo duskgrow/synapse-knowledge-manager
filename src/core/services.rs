@@ -5,11 +5,15 @@
 
 use std::path::{Path, PathBuf};
 use std::fs;
+use std::io::Read;
+
+use sha2::{Sha256, Digest};
+use mime_guess::from_path;
 
 use crate::core::models::*;
 use crate::core::{Error, Result};
-use crate::storage::{DatabaseManager, NoteDao, TagDao, FolderDao, LinkDao, BlockDao};
-use crate::storage::{NoteFolderDao, NoteTagDao};
+use crate::storage::{DatabaseManager, NoteDao, TagDao, FolderDao, LinkDao, BlockDao, AttachmentDao};
+use crate::storage::{NoteFolderDao, NoteTagDao, NoteAttachmentDao, BlockAttachmentDao};
 
 /// Service context that holds database and file system paths
 pub struct ServiceContext {
@@ -679,6 +683,266 @@ impl BlockService {
         
         BlockReferenceDao::delete(ctx.conn(), &source_block_id, &target_block_id)?;
         Ok(())
+    }
+}
+
+/// Attachment service for managing attachments
+pub struct AttachmentService;
+
+impl AttachmentService {
+    /// Upload an attachment from a file path
+    pub fn upload_from_path(
+        ctx: &ServiceContext,
+        file_path: &Path,
+        original_name: Option<String>,
+    ) -> Result<Attachment> {
+        // Read file content
+        let mut file = fs::File::open(file_path)?;
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)?;
+        
+        // Use original name or derive from path
+        let file_name = original_name
+            .unwrap_or_else(|| file_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string());
+        
+        Self::upload_from_bytes(ctx, &content, &file_name)
+    }
+
+    /// Upload an attachment from bytes
+    pub fn upload_from_bytes(
+        ctx: &ServiceContext,
+        content: &[u8],
+        file_name: &str,
+    ) -> Result<Attachment> {
+        // Calculate SHA-256 hash
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let hash = format!("{:x}", hasher.finalize());
+        
+        // Check if attachment with same hash already exists (deduplication)
+        if let Some(existing) = AttachmentDao::get_by_hash(ctx.conn(), &hash)? {
+            // Return existing attachment (deduplication)
+            return Ok(existing);
+        }
+        
+        // Detect MIME type
+        let mime_type = from_path(file_name)
+            .first_or_octet_stream()
+            .to_string();
+        
+        // Determine file type
+        let file_type = Self::determine_file_type(&mime_type);
+        
+        // Get file extension
+        let ext = Path::new(file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin");
+        
+        // Generate attachment ID and file path
+        let uuid = uuid::Uuid::new_v4();
+        let attachment_id = format!("attachment-{}", uuid);
+        let file_path = format!("attachments/{}.{}", uuid, ext);
+        let full_path = ctx.data_dir().join(&file_path);
+        
+        // Write file to disk
+        fs::write(&full_path, content)?;
+        
+        // Get file size
+        let file_size = content.len() as i64;
+        
+        // For images, try to detect dimensions (optional, can be enhanced later)
+        let (width, height) = if file_type == "image" {
+            Self::detect_image_dimensions(&content).unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+        
+        // Create attachment model
+        let attachment = Attachment::new(
+            attachment_id.clone(),
+            file_name.to_string(),
+            file_path,
+            file_type,
+            mime_type,
+            file_size,
+            hash,
+        );
+        
+        // Set image dimensions if available
+        let mut attachment = attachment;
+        if let (Some(w), Some(h)) = (width, height) {
+            attachment.width = Some(w);
+            attachment.height = Some(h);
+        }
+        
+        // Save to database
+        AttachmentDao::create(ctx.conn(), &attachment)?;
+        
+        Ok(attachment)
+    }
+
+    /// Get an attachment by ID
+    pub fn get_by_id(ctx: &ServiceContext, id: &str) -> Result<Option<Attachment>> {
+        AttachmentDao::get_by_id(ctx.conn(), id)
+    }
+
+    /// Get an attachment by hash (for deduplication check)
+    pub fn get_by_hash(ctx: &ServiceContext, hash: &str) -> Result<Option<Attachment>> {
+        AttachmentDao::get_by_hash(ctx.conn(), hash)
+    }
+
+    /// Get attachment file path
+    pub fn get_file_path(ctx: &ServiceContext, attachment: &Attachment) -> PathBuf {
+        ctx.data_dir().join(&attachment.file_path)
+    }
+
+    /// Read attachment file content
+    pub fn read_file(ctx: &ServiceContext, attachment: &Attachment) -> Result<Vec<u8>> {
+        let file_path = Self::get_file_path(ctx, attachment);
+        Ok(fs::read(file_path)?)
+    }
+
+    /// Delete an attachment (and its file)
+    pub fn delete(ctx: &ServiceContext, id: &str) -> Result<()> {
+        // Get attachment to find file path
+        if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), id)? {
+            let file_path = Self::get_file_path(ctx, &attachment);
+            
+            // Check if other attachments have the same hash (deduplication)
+            // Count how many attachments share this hash
+            let mut stmt = ctx.conn().prepare(
+                "SELECT COUNT(*) FROM attachments WHERE hash = ?1"
+            )?;
+            let count: i64 = stmt.query_row(params![attachment.hash], |row| row.get(0))?;
+            
+            // Only delete file if this is the only attachment with this hash
+            // (meaning no other attachments reference the same file)
+            if count <= 1 && file_path.exists() {
+                let _ = fs::remove_file(file_path); // Ignore errors if file already deleted
+            }
+        }
+        
+        // Delete from database
+        AttachmentDao::delete(ctx.conn(), id)?;
+        Ok(())
+    }
+
+    /// Add attachment to a note
+    pub fn add_to_note(
+        ctx: &ServiceContext,
+        note_id: &str,
+        attachment_id: &str,
+        position: i64,
+    ) -> Result<()> {
+        // Validate note and attachment exist
+        if NoteDao::get_by_id(ctx.conn(), note_id, false)?.is_none() {
+            return Err(Error::NotFound(format!("Note not found: {}", note_id)));
+        }
+        if AttachmentDao::get_by_id(ctx.conn(), attachment_id)?.is_none() {
+            return Err(Error::NotFound(format!("Attachment not found: {}", attachment_id)));
+        }
+        
+        NoteAttachmentDao::add(ctx.conn(), note_id, attachment_id, position)?;
+        Ok(())
+    }
+
+    /// Remove attachment from a note
+    pub fn remove_from_note(
+        ctx: &ServiceContext,
+        note_id: &str,
+        attachment_id: &str,
+    ) -> Result<()> {
+        NoteAttachmentDao::remove(ctx.conn(), note_id, attachment_id)?;
+        Ok(())
+    }
+
+    /// Get all attachments for a note
+    pub fn get_for_note(ctx: &ServiceContext, note_id: &str) -> Result<Vec<Attachment>> {
+        let attachment_ids = NoteAttachmentDao::get_attachments_for_note(ctx.conn(), note_id)?;
+        let mut attachments = Vec::new();
+        
+        for id in attachment_ids {
+            if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), &id)? {
+                attachments.push(attachment);
+            }
+        }
+        
+        Ok(attachments)
+    }
+
+    /// Add attachment to a block
+    pub fn add_to_block(
+        ctx: &ServiceContext,
+        block_id: &str,
+        attachment_id: &str,
+    ) -> Result<()> {
+        // Validate block and attachment exist
+        if BlockDao::get_by_id(ctx.conn(), block_id, false)?.is_none() {
+            return Err(Error::NotFound(format!("Block not found: {}", block_id)));
+        }
+        if AttachmentDao::get_by_id(ctx.conn(), attachment_id)?.is_none() {
+            return Err(Error::NotFound(format!("Attachment not found: {}", attachment_id)));
+        }
+        
+        BlockAttachmentDao::add(ctx.conn(), block_id, attachment_id)?;
+        Ok(())
+    }
+
+    /// Remove attachment from a block
+    pub fn remove_from_block(
+        ctx: &ServiceContext,
+        block_id: &str,
+        attachment_id: &str,
+    ) -> Result<()> {
+        BlockAttachmentDao::remove(ctx.conn(), block_id, attachment_id)?;
+        Ok(())
+    }
+
+    /// Get all attachments for a block
+    pub fn get_for_block(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Attachment>> {
+        let attachment_ids = BlockAttachmentDao::get_attachments_for_block(ctx.conn(), block_id)?;
+        let mut attachments = Vec::new();
+        
+        for id in attachment_ids {
+            if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), &id)? {
+                attachments.push(attachment);
+            }
+        }
+        
+        Ok(attachments)
+    }
+
+    /// Determine file type from MIME type
+    fn determine_file_type(mime_type: &str) -> String {
+        if mime_type.starts_with("image/") {
+            "image".to_string()
+        } else if mime_type.starts_with("video/") {
+            "media".to_string()
+        } else if mime_type.starts_with("audio/") {
+            "media".to_string()
+        } else if mime_type == "application/pdf"
+            || mime_type.starts_with("application/msword")
+            || mime_type.starts_with("application/vnd.openxmlformats")
+            || mime_type.starts_with("application/vnd.ms-")
+            || mime_type == "application/rtf"
+            || mime_type == "text/plain"
+            || mime_type.starts_with("text/")
+        {
+            "document".to_string()
+        } else {
+            "other".to_string()
+        }
+    }
+
+    /// Detect image dimensions (simplified version, can be enhanced with image crate)
+    fn detect_image_dimensions(_content: &[u8]) -> Option<(Option<i32>, Option<i32>)> {
+        // TODO: Implement image dimension detection using image crate
+        // For now, return None (can be enhanced later)
+        None
     }
 }
 
