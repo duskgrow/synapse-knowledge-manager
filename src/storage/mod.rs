@@ -2,9 +2,12 @@
 //!
 //! This module handles data persistence using SQLite and file system.
 
-// Placeholder for future storage implementation
-// This will include:
-// - SQLite database management
-// - File system operations
-// - Data migration
-// - Backup and restore
+mod database;
+mod db_manager;
+mod dao;
+mod queries;
+
+pub use database::init_database;
+pub use db_manager::DatabaseManager;
+pub use dao::*;
+pub use queries::*;

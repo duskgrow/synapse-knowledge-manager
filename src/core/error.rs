@@ -6,7 +6,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Database error: {0}")]
-    Database(String),
+    Database(#[from] rusqlite::Error),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -19,6 +19,9 @@ pub enum Error {
 
     #[error("Storage error: {0}")]
     Storage(String),
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }
 
 /// Result type alias for core operations
