@@ -73,7 +73,7 @@ For detailed architecture information, please refer to the project documentation
 
 ```bash
 # Clone the repository
-git clone https://github.com/dustgrow/synapse-knowledge-manager.git
+git clone https://github.com/duskgrow/synapse-knowledge-manager.git
 cd synapse-knowledge-manager
 
 # Build the project
@@ -144,8 +144,8 @@ Synapse is inspired by:
 
 ## 📞 Contact
 
-- **Project**: [Synapse Knowledge Manager](https://github.com/dustgrow/synapse-knowledge-manager)
-- **Issues**: [GitHub Issues](https://github.com/dustgrow/synapse-knowledge-manager/issues)
+- **Project**: [Synapse Knowledge Manager](https://github.com/duskgrow/synapse-knowledge-manager)
+- **Issues**: [GitHub Issues](https://github.com/duskgrow/synapse-knowledge-manager/issues)
 
 ---
 
