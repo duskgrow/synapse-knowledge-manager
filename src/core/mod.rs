@@ -14,4 +14,5 @@ pub use services::{
     FolderService,
     LinkService,
     SearchService,
+    BlockService,
 };

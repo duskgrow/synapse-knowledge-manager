@@ -536,4 +536,150 @@ impl SearchService {
     }
 }
 
+/// Block service for managing blocks
+pub struct BlockService;
+
+impl BlockService {
+    /// Create a new block
+    pub fn create(
+        ctx: &ServiceContext,
+        note_id: String,
+        block_type: String,
+        content: String,
+        position: i64,
+    ) -> Result<Block> {
+        // Validate note exists
+        if NoteDao::get_by_id(ctx.conn(), &note_id, false)?.is_none() {
+            return Err(Error::NotFound(format!("Note not found: {}", note_id)));
+        }
+        
+        let uuid = uuid::Uuid::new_v4();
+        let block_id = format!("block-{}", uuid);
+        let block = Block::new(block_id.clone(), note_id, block_type, content, position);
+        
+        BlockDao::create(ctx.conn(), &block)?;
+        
+        Ok(block)
+    }
+
+    /// Get a block by ID
+    pub fn get_by_id(ctx: &ServiceContext, id: &str, include_deleted: bool) -> Result<Option<Block>> {
+        BlockDao::get_by_id(ctx.conn(), id, include_deleted)
+    }
+
+    /// Get all blocks for a note
+    pub fn get_by_note(ctx: &ServiceContext, note_id: &str, include_deleted: bool) -> Result<Vec<Block>> {
+        BlockDao::get_by_note(ctx.conn(), note_id, include_deleted)
+    }
+
+    /// Update a block
+    pub fn update(ctx: &ServiceContext, block: &Block) -> Result<()> {
+        BlockDao::update(ctx.conn(), block)?;
+        Ok(())
+    }
+
+    /// Update block content
+    pub fn update_content(ctx: &ServiceContext, id: &str, content: String) -> Result<()> {
+        let mut block = BlockDao::get_by_id(ctx.conn(), id, false)?
+            .ok_or_else(|| Error::NotFound(format!("Block not found: {}", id)))?;
+        
+        block.update_content(content);
+        BlockDao::update(ctx.conn(), &block)?;
+        
+        Ok(())
+    }
+
+    /// Update block position
+    pub fn update_position(ctx: &ServiceContext, id: &str, position: i64) -> Result<()> {
+        let mut block = BlockDao::get_by_id(ctx.conn(), id, false)?
+            .ok_or_else(|| Error::NotFound(format!("Block not found: {}", id)))?;
+        
+        block.position = position;
+        block.updated_at = chrono::Utc::now().timestamp();
+        BlockDao::update(ctx.conn(), &block)?;
+        
+        Ok(())
+    }
+
+    /// Soft delete a block
+    pub fn delete(ctx: &ServiceContext, id: &str) -> Result<()> {
+        BlockDao::soft_delete(ctx.conn(), id)?;
+        Ok(())
+    }
+
+    /// Restore a soft-deleted block
+    pub fn restore(ctx: &ServiceContext, id: &str) -> Result<()> {
+        BlockDao::restore(ctx.conn(), id)?;
+        Ok(())
+    }
+
+    /// Get blocks that reference a block
+    pub fn get_referencing_blocks(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Block>> {
+        use crate::storage::BlockReferenceDao;
+        
+        let referencing_ids = BlockReferenceDao::get_referencing_blocks(ctx.conn(), block_id)?;
+        let mut blocks = Vec::new();
+        
+        for id in referencing_ids {
+            if let Some(block) = BlockDao::get_by_id(ctx.conn(), &id, false)? {
+                blocks.push(block);
+            }
+        }
+        
+        Ok(blocks)
+    }
+
+    /// Get blocks referenced by a block
+    pub fn get_referenced_blocks(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Block>> {
+        use crate::storage::BlockReferenceDao;
+        
+        let referenced_ids = BlockReferenceDao::get_referenced_blocks(ctx.conn(), block_id)?;
+        let mut blocks = Vec::new();
+        
+        for id in referenced_ids {
+            if let Some(block) = BlockDao::get_by_id(ctx.conn(), &id, false)? {
+                blocks.push(block);
+            }
+        }
+        
+        Ok(blocks)
+    }
+
+    /// Create a block reference
+    pub fn create_reference(
+        ctx: &ServiceContext,
+        source_block_id: String,
+        target_block_id: String,
+    ) -> Result<()> {
+        use crate::storage::BlockReferenceDao;
+        
+        // Validate blocks exist
+        if BlockDao::get_by_id(ctx.conn(), &source_block_id, false)?.is_none() {
+            return Err(Error::NotFound(format!("Source block not found: {}", source_block_id)));
+        }
+        if BlockDao::get_by_id(ctx.conn(), &target_block_id, false)?.is_none() {
+            return Err(Error::NotFound(format!("Target block not found: {}", target_block_id)));
+        }
+        
+        let uuid = uuid::Uuid::new_v4();
+        let ref_id = format!("ref-{}", uuid);
+        
+        BlockReferenceDao::create(ctx.conn(), &ref_id, &source_block_id, &target_block_id)?;
+        
+        Ok(())
+    }
+
+    /// Delete a block reference
+    pub fn delete_reference(
+        ctx: &ServiceContext,
+        source_block_id: String,
+        target_block_id: String,
+    ) -> Result<()> {
+        use crate::storage::BlockReferenceDao;
+        
+        BlockReferenceDao::delete(ctx.conn(), &source_block_id, &target_block_id)?;
+        Ok(())
+    }
+}
+
 use rusqlite::params;
