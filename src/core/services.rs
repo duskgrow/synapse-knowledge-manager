@@ -3,17 +3,19 @@
 //! This module provides high-level business logic services that coordinate
 //! between file system operations and database operations.
 
-use std::path::{Path, PathBuf};
 use std::fs;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
-use sha2::{Sha256, Digest};
 use mime_guess::from_path;
+use sha2::{Digest, Sha256};
 
 use crate::core::models::*;
 use crate::core::{Error, Result};
-use crate::storage::{DatabaseManager, NoteDao, TagDao, FolderDao, LinkDao, BlockDao, AttachmentDao};
-use crate::storage::{NoteFolderDao, NoteTagDao, NoteAttachmentDao, BlockAttachmentDao};
+use crate::storage::{
+    AttachmentDao, BlockDao, DatabaseManager, FolderDao, LinkDao, NoteDao, TagDao,
+};
+use crate::storage::{BlockAttachmentDao, NoteAttachmentDao, NoteFolderDao, NoteTagDao};
 
 /// Service context that holds database and file system paths
 pub struct ServiceContext {
@@ -26,12 +28,12 @@ impl ServiceContext {
     pub fn new<P: AsRef<Path>>(db_path: P, data_dir: P) -> Result<Self> {
         let db = DatabaseManager::new(db_path)?;
         let data_dir = data_dir.as_ref().to_path_buf();
-        
+
         // Ensure data directory exists
         fs::create_dir_all(&data_dir)?;
         fs::create_dir_all(data_dir.join("notes"))?;
         fs::create_dir_all(data_dir.join("attachments"))?;
-        
+
         Ok(Self { db, data_dir })
     }
 
@@ -55,31 +57,35 @@ impl NoteService {
         // Generate note ID
         let uuid = uuid::Uuid::new_v4();
         let note_id = format!("note-{}", uuid);
-        
+
         // Generate file path (simplified: just use UUID for now, slug can be added later)
         let file_name = format!("{}-{}.md", uuid, Self::slugify(&title));
         let content_path = format!("notes/{}", file_name);
         let full_path = ctx.data_dir().join(&content_path);
-        
+
         // Create note model
         let mut note = Note::new(note_id.clone(), title, content_path.clone());
-        
+
         // Write content to file
         fs::write(&full_path, content.as_bytes())?;
-        
+
         // Calculate word count
         note.update_word_count(Self::count_words(&content));
-        
+
         // Save to database
         NoteDao::create(ctx.conn(), &note)?;
-        
+
         Ok(note)
     }
 
     /// Get a note by ID (including content from file)
-    pub fn get_by_id(ctx: &ServiceContext, id: &str, include_deleted: bool) -> Result<Option<NoteWithContent>> {
+    pub fn get_by_id(
+        ctx: &ServiceContext,
+        id: &str,
+        include_deleted: bool,
+    ) -> Result<Option<NoteWithContent>> {
         let note = NoteDao::get_by_id(ctx.conn(), id, include_deleted)?;
-        
+
         match note {
             Some(note) => {
                 // Read content from file
@@ -89,36 +95,38 @@ impl NoteService {
                 } else {
                     String::new()
                 };
-                
-                Ok(Some(NoteWithContent {
-                    note,
-                    content,
-                }))
+
+                Ok(Some(NoteWithContent { note, content }))
             }
             None => Ok(None),
         }
     }
 
     /// Update note title and/or content
-    pub fn update(ctx: &ServiceContext, id: &str, title: Option<String>, content: Option<String>) -> Result<()> {
+    pub fn update(
+        ctx: &ServiceContext,
+        id: &str,
+        title: Option<String>,
+        content: Option<String>,
+    ) -> Result<()> {
         let mut note = NoteDao::get_by_id(ctx.conn(), id, false)?
             .ok_or_else(|| Error::NotFound(format!("Note not found: {}", id)))?;
-        
+
         // Update title if provided
         if let Some(new_title) = title {
             note.update_title(new_title);
         }
-        
+
         // Update content if provided
         if let Some(new_content) = content {
             let content_path = ctx.data_dir().join(&note.content_path);
             fs::write(&content_path, new_content.as_bytes())?;
             note.update_word_count(Self::count_words(&new_content));
         }
-        
+
         // Update in database
         NoteDao::update(ctx.conn(), &note)?;
-        
+
         Ok(())
     }
 
@@ -150,17 +158,31 @@ impl NoteService {
     }
 
     /// Search notes by title
-    pub fn search_by_title(ctx: &ServiceContext, query: &str, include_deleted: bool) -> Result<Vec<Note>> {
+    pub fn search_by_title(
+        ctx: &ServiceContext,
+        query: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Note>> {
         NoteDao::search_by_title(ctx.conn(), query, include_deleted)
     }
 
     /// Get notes in a folder
-    pub fn get_by_folder(ctx: &ServiceContext, folder_id: &str, include_deleted: bool) -> Result<Vec<Note>> {
+    pub fn get_by_folder(
+        ctx: &ServiceContext,
+        folder_id: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Note>> {
         NoteDao::get_by_folder(ctx.conn(), folder_id, include_deleted)
     }
 
     /// Add note to folder
-    pub fn add_to_folder(ctx: &ServiceContext, note_id: &str, folder_id: &str, is_primary: bool, position: i64) -> Result<()> {
+    pub fn add_to_folder(
+        ctx: &ServiceContext,
+        note_id: &str,
+        folder_id: &str,
+        is_primary: bool,
+        position: i64,
+    ) -> Result<()> {
         NoteFolderDao::add(ctx.conn(), note_id, folder_id, is_primary, position)?;
         Ok(())
     }
@@ -187,13 +209,13 @@ impl NoteService {
     pub fn get_tags(ctx: &ServiceContext, note_id: &str) -> Result<Vec<Tag>> {
         let tag_ids = NoteTagDao::get_tags_for_note(ctx.conn(), note_id)?;
         let mut tags = Vec::new();
-        
+
         for tag_id in tag_ids {
             if let Some(tag) = TagDao::get_by_id(ctx.conn(), &tag_id)? {
                 tags.push(tag);
             }
         }
-        
+
         Ok(tags)
     }
 
@@ -209,7 +231,13 @@ impl NoteService {
         title
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .chars()
             .fold(String::new(), |mut acc, c| {
@@ -227,7 +255,7 @@ impl NoteService {
 }
 
 /// Note with content loaded from file
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct NoteWithContent {
     pub note: Note,
     pub content: String,
@@ -241,15 +269,18 @@ impl TagService {
     pub fn create(ctx: &ServiceContext, name: String) -> Result<Tag> {
         // Check if tag with same name already exists
         if let Some(_) = TagDao::get_by_name(ctx.conn(), &name)? {
-            return Err(Error::InvalidInput(format!("Tag '{}' already exists", name)));
+            return Err(Error::InvalidInput(format!(
+                "Tag '{}' already exists",
+                name
+            )));
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let tag_id = format!("tag-{}", uuid);
         let tag = Tag::new(tag_id.clone(), name);
-        
+
         TagDao::create(ctx.conn(), &tag)?;
-        
+
         Ok(tag)
     }
 
@@ -284,13 +315,13 @@ impl TagService {
     pub fn get_notes(ctx: &ServiceContext, tag_id: &str) -> Result<Vec<Note>> {
         let note_ids = crate::storage::NoteTagDao::get_notes_with_tag(ctx.conn(), tag_id)?;
         let mut notes = Vec::new();
-        
+
         for note_id in note_ids {
             if let Some(note) = NoteDao::get_by_id(ctx.conn(), &note_id, false)? {
                 notes.push(note);
             }
         }
-        
+
         Ok(notes)
     }
 }
@@ -307,10 +338,10 @@ impl FolderService {
                 return Err(Error::NotFound(format!("Parent folder not found: {}", pid)));
             }
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let folder_id = format!("folder-{}", uuid);
-        
+
         // Calculate path
         let path = if let Some(ref pid) = parent_id {
             if let Some(parent) = FolderDao::get_by_id(ctx.conn(), pid)? {
@@ -321,11 +352,11 @@ impl FolderService {
         } else {
             format!("/{}", name)
         };
-        
+
         let folder = Folder::new(folder_id.clone(), name, parent_id, path);
-        
+
         FolderDao::create(ctx.conn(), &folder)?;
-        
+
         Ok(folder)
     }
 
@@ -355,15 +386,22 @@ impl FolderService {
         // Check if folder has children
         let children = FolderDao::get_children(ctx.conn(), id)?;
         if !children.is_empty() {
-            return Err(Error::InvalidInput(format!("Cannot delete folder with children: {}", id)));
+            return Err(Error::InvalidInput(format!(
+                "Cannot delete folder with children: {}",
+                id
+            )));
         }
-        
+
         FolderDao::delete(ctx.conn(), id)?;
         Ok(())
     }
 
     /// Get all notes in a folder
-    pub fn get_notes(ctx: &ServiceContext, folder_id: &str, include_deleted: bool) -> Result<Vec<Note>> {
+    pub fn get_notes(
+        ctx: &ServiceContext,
+        folder_id: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Note>> {
         NoteDao::get_by_folder(ctx.conn(), folder_id, include_deleted)
     }
 }
@@ -381,18 +419,24 @@ impl LinkService {
     ) -> Result<Link> {
         // Validate notes exist
         if NoteDao::get_by_id(ctx.conn(), &source_note_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Source note not found: {}", source_note_id)));
+            return Err(Error::NotFound(format!(
+                "Source note not found: {}",
+                source_note_id
+            )));
         }
         if NoteDao::get_by_id(ctx.conn(), &target_note_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Target note not found: {}", target_note_id)));
+            return Err(Error::NotFound(format!(
+                "Target note not found: {}",
+                target_note_id
+            )));
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let link_id = format!("link-{}", uuid);
         let link = Link::new_note_link(link_id.clone(), source_note_id, target_note_id, link_text);
-        
+
         LinkDao::create(ctx.conn(), &link)?;
-        
+
         Ok(link)
     }
 
@@ -405,18 +449,29 @@ impl LinkService {
     ) -> Result<Link> {
         // Validate blocks exist
         if BlockDao::get_by_id(ctx.conn(), &source_block_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Source block not found: {}", source_block_id)));
+            return Err(Error::NotFound(format!(
+                "Source block not found: {}",
+                source_block_id
+            )));
         }
         if BlockDao::get_by_id(ctx.conn(), &target_block_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Target block not found: {}", target_block_id)));
+            return Err(Error::NotFound(format!(
+                "Target block not found: {}",
+                target_block_id
+            )));
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let link_id = format!("link-{}", uuid);
-        let link = Link::new_block_reference(link_id.clone(), source_block_id, target_block_id, source_note_id);
-        
+        let link = Link::new_block_reference(
+            link_id.clone(),
+            source_block_id,
+            target_block_id,
+            source_note_id,
+        );
+
         LinkDao::create(ctx.conn(), &link)?;
-        
+
         Ok(link)
     }
 
@@ -457,9 +512,13 @@ pub struct SearchService;
 
 impl SearchService {
     /// Search notes by full-text (using FTS5)
-    pub fn search_notes(ctx: &ServiceContext, query: &str, include_deleted: bool) -> Result<Vec<Note>> {
+    pub fn search_notes(
+        ctx: &ServiceContext,
+        query: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Note>> {
         let conn = ctx.conn();
-        
+
         // Build FTS query - FTS5 uses rowid to join with source table
         let mut sql = r#"
             SELECT DISTINCT n.id, n.title, n.content_path, n.created_at, n.updated_at, n.word_count, n.is_deleted, n.deleted_at
@@ -468,13 +527,13 @@ impl SearchService {
             WHERE notes_fts MATCH ?1
         "#
         .to_string();
-        
+
         if !include_deleted {
             sql.push_str(" AND n.is_deleted = 0");
         }
-        
+
         sql.push_str(" ORDER BY n.updated_at DESC");
-        
+
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![query], |row| {
             Ok(Note {
@@ -488,19 +547,23 @@ impl SearchService {
                 deleted_at: row.get(7)?,
             })
         })?;
-        
+
         let mut notes = Vec::new();
         for row in rows {
             notes.push(row?);
         }
-        
+
         Ok(notes)
     }
 
     /// Search blocks by full-text (using FTS5)
-    pub fn search_blocks(ctx: &ServiceContext, query: &str, include_deleted: bool) -> Result<Vec<Block>> {
+    pub fn search_blocks(
+        ctx: &ServiceContext,
+        query: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Block>> {
         let conn = ctx.conn();
-        
+
         // Build FTS query - FTS5 uses rowid to join with source table
         let mut sql = r#"
             SELECT DISTINCT b.id, b.note_id, b.block_type, b.content, b.position, b.created_at, b.updated_at, b.is_deleted, b.deleted_at
@@ -509,13 +572,13 @@ impl SearchService {
             WHERE blocks_fts MATCH ?1
         "#
         .to_string();
-        
+
         if !include_deleted {
             sql.push_str(" AND b.is_deleted = 0");
         }
-        
+
         sql.push_str(" ORDER BY b.position");
-        
+
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![query], |row| {
             Ok(Block {
@@ -530,12 +593,12 @@ impl SearchService {
                 deleted_at: row.get(8)?,
             })
         })?;
-        
+
         let mut blocks = Vec::new();
         for row in rows {
             blocks.push(row?);
         }
-        
+
         Ok(blocks)
     }
 }
@@ -556,23 +619,31 @@ impl BlockService {
         if NoteDao::get_by_id(ctx.conn(), &note_id, false)?.is_none() {
             return Err(Error::NotFound(format!("Note not found: {}", note_id)));
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let block_id = format!("block-{}", uuid);
         let block = Block::new(block_id.clone(), note_id, block_type, content, position);
-        
+
         BlockDao::create(ctx.conn(), &block)?;
-        
+
         Ok(block)
     }
 
     /// Get a block by ID
-    pub fn get_by_id(ctx: &ServiceContext, id: &str, include_deleted: bool) -> Result<Option<Block>> {
+    pub fn get_by_id(
+        ctx: &ServiceContext,
+        id: &str,
+        include_deleted: bool,
+    ) -> Result<Option<Block>> {
         BlockDao::get_by_id(ctx.conn(), id, include_deleted)
     }
 
     /// Get all blocks for a note
-    pub fn get_by_note(ctx: &ServiceContext, note_id: &str, include_deleted: bool) -> Result<Vec<Block>> {
+    pub fn get_by_note(
+        ctx: &ServiceContext,
+        note_id: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Block>> {
         BlockDao::get_by_note(ctx.conn(), note_id, include_deleted)
     }
 
@@ -586,10 +657,10 @@ impl BlockService {
     pub fn update_content(ctx: &ServiceContext, id: &str, content: String) -> Result<()> {
         let mut block = BlockDao::get_by_id(ctx.conn(), id, false)?
             .ok_or_else(|| Error::NotFound(format!("Block not found: {}", id)))?;
-        
+
         block.update_content(content);
         BlockDao::update(ctx.conn(), &block)?;
-        
+
         Ok(())
     }
 
@@ -597,11 +668,11 @@ impl BlockService {
     pub fn update_position(ctx: &ServiceContext, id: &str, position: i64) -> Result<()> {
         let mut block = BlockDao::get_by_id(ctx.conn(), id, false)?
             .ok_or_else(|| Error::NotFound(format!("Block not found: {}", id)))?;
-        
+
         block.position = position;
         block.updated_at = chrono::Utc::now().timestamp();
         BlockDao::update(ctx.conn(), &block)?;
-        
+
         Ok(())
     }
 
@@ -620,32 +691,32 @@ impl BlockService {
     /// Get blocks that reference a block
     pub fn get_referencing_blocks(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Block>> {
         use crate::storage::BlockReferenceDao;
-        
+
         let referencing_ids = BlockReferenceDao::get_referencing_blocks(ctx.conn(), block_id)?;
         let mut blocks = Vec::new();
-        
+
         for id in referencing_ids {
             if let Some(block) = BlockDao::get_by_id(ctx.conn(), &id, false)? {
                 blocks.push(block);
             }
         }
-        
+
         Ok(blocks)
     }
 
     /// Get blocks referenced by a block
     pub fn get_referenced_blocks(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Block>> {
         use crate::storage::BlockReferenceDao;
-        
+
         let referenced_ids = BlockReferenceDao::get_referenced_blocks(ctx.conn(), block_id)?;
         let mut blocks = Vec::new();
-        
+
         for id in referenced_ids {
             if let Some(block) = BlockDao::get_by_id(ctx.conn(), &id, false)? {
                 blocks.push(block);
             }
         }
-        
+
         Ok(blocks)
     }
 
@@ -656,20 +727,26 @@ impl BlockService {
         target_block_id: String,
     ) -> Result<()> {
         use crate::storage::BlockReferenceDao;
-        
+
         // Validate blocks exist
         if BlockDao::get_by_id(ctx.conn(), &source_block_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Source block not found: {}", source_block_id)));
+            return Err(Error::NotFound(format!(
+                "Source block not found: {}",
+                source_block_id
+            )));
         }
         if BlockDao::get_by_id(ctx.conn(), &target_block_id, false)?.is_none() {
-            return Err(Error::NotFound(format!("Target block not found: {}", target_block_id)));
+            return Err(Error::NotFound(format!(
+                "Target block not found: {}",
+                target_block_id
+            )));
         }
-        
+
         let uuid = uuid::Uuid::new_v4();
         let ref_id = format!("ref-{}", uuid);
-        
+
         BlockReferenceDao::create(ctx.conn(), &ref_id, &source_block_id, &target_block_id)?;
-        
+
         Ok(())
     }
 
@@ -680,7 +757,7 @@ impl BlockService {
         target_block_id: String,
     ) -> Result<()> {
         use crate::storage::BlockReferenceDao;
-        
+
         BlockReferenceDao::delete(ctx.conn(), &source_block_id, &target_block_id)?;
         Ok(())
     }
@@ -700,14 +777,16 @@ impl AttachmentService {
         let mut file = fs::File::open(file_path)?;
         let mut content = Vec::new();
         file.read_to_end(&mut content)?;
-        
+
         // Use original name or derive from path
-        let file_name = original_name
-            .unwrap_or_else(|| file_path.file_name()
+        let file_name = original_name.unwrap_or_else(|| {
+            file_path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
-                .to_string());
-        
+                .to_string()
+        });
+
         Self::upload_from_bytes(ctx, &content, &file_name)
     }
 
@@ -721,46 +800,44 @@ impl AttachmentService {
         let mut hasher = Sha256::new();
         hasher.update(content);
         let hash = format!("{:x}", hasher.finalize());
-        
+
         // Check if attachment with same hash already exists (deduplication)
         if let Some(existing) = AttachmentDao::get_by_hash(ctx.conn(), &hash)? {
             // Return existing attachment (deduplication)
             return Ok(existing);
         }
-        
+
         // Detect MIME type
-        let mime_type = from_path(file_name)
-            .first_or_octet_stream()
-            .to_string();
-        
+        let mime_type = from_path(file_name).first_or_octet_stream().to_string();
+
         // Determine file type
         let file_type = Self::determine_file_type(&mime_type);
-        
+
         // Get file extension
         let ext = Path::new(file_name)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("bin");
-        
+
         // Generate attachment ID and file path
         let uuid = uuid::Uuid::new_v4();
         let attachment_id = format!("attachment-{}", uuid);
         let file_path = format!("attachments/{}.{}", uuid, ext);
         let full_path = ctx.data_dir().join(&file_path);
-        
+
         // Write file to disk
         fs::write(&full_path, content)?;
-        
+
         // Get file size
         let file_size = content.len() as i64;
-        
+
         // For images, try to detect dimensions (optional, can be enhanced later)
         let (width, height) = if file_type == "image" {
             Self::detect_image_dimensions(&content).unwrap_or((None, None))
         } else {
             (None, None)
         };
-        
+
         // Create attachment model
         let attachment = Attachment::new(
             attachment_id.clone(),
@@ -771,17 +848,17 @@ impl AttachmentService {
             file_size,
             hash,
         );
-        
+
         // Set image dimensions if available
         let mut attachment = attachment;
         if let (Some(w), Some(h)) = (width, height) {
             attachment.width = Some(w);
             attachment.height = Some(h);
         }
-        
+
         // Save to database
         AttachmentDao::create(ctx.conn(), &attachment)?;
-        
+
         Ok(attachment)
     }
 
@@ -811,21 +888,21 @@ impl AttachmentService {
         // Get attachment to find file path
         if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), id)? {
             let file_path = Self::get_file_path(ctx, &attachment);
-            
+
             // Check if other attachments have the same hash (deduplication)
             // Count how many attachments share this hash
-            let mut stmt = ctx.conn().prepare(
-                "SELECT COUNT(*) FROM attachments WHERE hash = ?1"
-            )?;
+            let mut stmt = ctx
+                .conn()
+                .prepare("SELECT COUNT(*) FROM attachments WHERE hash = ?1")?;
             let count: i64 = stmt.query_row(params![attachment.hash], |row| row.get(0))?;
-            
+
             // Only delete file if this is the only attachment with this hash
             // (meaning no other attachments reference the same file)
             if count <= 1 && file_path.exists() {
                 let _ = fs::remove_file(file_path); // Ignore errors if file already deleted
             }
         }
-        
+
         // Delete from database
         AttachmentDao::delete(ctx.conn(), id)?;
         Ok(())
@@ -843,9 +920,12 @@ impl AttachmentService {
             return Err(Error::NotFound(format!("Note not found: {}", note_id)));
         }
         if AttachmentDao::get_by_id(ctx.conn(), attachment_id)?.is_none() {
-            return Err(Error::NotFound(format!("Attachment not found: {}", attachment_id)));
+            return Err(Error::NotFound(format!(
+                "Attachment not found: {}",
+                attachment_id
+            )));
         }
-        
+
         NoteAttachmentDao::add(ctx.conn(), note_id, attachment_id, position)?;
         Ok(())
     }
@@ -864,30 +944,29 @@ impl AttachmentService {
     pub fn get_for_note(ctx: &ServiceContext, note_id: &str) -> Result<Vec<Attachment>> {
         let attachment_ids = NoteAttachmentDao::get_attachments_for_note(ctx.conn(), note_id)?;
         let mut attachments = Vec::new();
-        
+
         for id in attachment_ids {
             if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), &id)? {
                 attachments.push(attachment);
             }
         }
-        
+
         Ok(attachments)
     }
 
     /// Add attachment to a block
-    pub fn add_to_block(
-        ctx: &ServiceContext,
-        block_id: &str,
-        attachment_id: &str,
-    ) -> Result<()> {
+    pub fn add_to_block(ctx: &ServiceContext, block_id: &str, attachment_id: &str) -> Result<()> {
         // Validate block and attachment exist
         if BlockDao::get_by_id(ctx.conn(), block_id, false)?.is_none() {
             return Err(Error::NotFound(format!("Block not found: {}", block_id)));
         }
         if AttachmentDao::get_by_id(ctx.conn(), attachment_id)?.is_none() {
-            return Err(Error::NotFound(format!("Attachment not found: {}", attachment_id)));
+            return Err(Error::NotFound(format!(
+                "Attachment not found: {}",
+                attachment_id
+            )));
         }
-        
+
         BlockAttachmentDao::add(ctx.conn(), block_id, attachment_id)?;
         Ok(())
     }
@@ -906,13 +985,13 @@ impl AttachmentService {
     pub fn get_for_block(ctx: &ServiceContext, block_id: &str) -> Result<Vec<Attachment>> {
         let attachment_ids = BlockAttachmentDao::get_attachments_for_block(ctx.conn(), block_id)?;
         let mut attachments = Vec::new();
-        
+
         for id in attachment_ids {
             if let Some(attachment) = AttachmentDao::get_by_id(ctx.conn(), &id)? {
                 attachments.push(attachment);
             }
         }
-        
+
         Ok(attachments)
     }
 

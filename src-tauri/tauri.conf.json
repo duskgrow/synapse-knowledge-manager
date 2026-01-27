@@ -1,15 +1,16 @@
 {
   "productName": "Synapse Knowledge Manager",
   "version": "0.1.0",
+  "identifier": "com.synapse.km",
   "mainBinaryName": "synapse-knowledge-manager",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "../frontend",
-    "distDir": "../frontend/dist",
-    "withGlobalTauri": false
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../frontend/dist"
   },
   "app": {
+    "withGlobalTauri": false,
     "security": {
       "assetProtocol": {
         "scope": ["$APPDATA/**", "$HOME/**"]
@@ -31,7 +32,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "identifier": "com.synapse.km",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
