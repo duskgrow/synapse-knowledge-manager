@@ -2,8 +2,8 @@
 
 use rusqlite::{params, Connection, Row};
 
-use crate::core::models::*;
-use crate::core::Error;
+use crate::models::*;
+use crate::Error;
 
 /// Note DAO
 pub struct NoteDao;
@@ -771,7 +771,7 @@ mod tests {
         let conn = db.conn();
 
         // Create test notes
-        use crate::core::models::Note;
+        use crate::models::Note;
         let note1 = Note::new("note-1".to_string(), "Note 1".to_string(), "notes/note1.md".to_string());
         let note2 = Note::new("note-2".to_string(), "Note 2".to_string(), "notes/note2.md".to_string());
         NoteDao::create(conn, &note1).unwrap();
@@ -803,7 +803,7 @@ mod tests {
         let conn = db.conn();
 
         // Create test note and blocks
-        use crate::core::models::{Note, Block};
+        use crate::models::{Note, Block};
         let note = Note::new("note-1".to_string(), "Test".to_string(), "notes/test.md".to_string());
         NoteDao::create(conn, &note).unwrap();
 

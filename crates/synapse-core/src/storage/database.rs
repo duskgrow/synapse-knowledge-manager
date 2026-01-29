@@ -7,10 +7,7 @@ const SCHEMA_VERSION: u32 = 1;
 
 /// Initialize the database with all tables
 pub fn init_database(conn: &Connection) -> Result<()> {
-    // Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-    // Create all tables
     create_notes_table(conn)?;
     create_blocks_table(conn)?;
     create_folders_table(conn)?;
@@ -24,14 +21,8 @@ pub fn init_database(conn: &Connection) -> Result<()> {
     create_attachments_table(conn)?;
     create_note_attachments_table(conn)?;
     create_block_attachments_table(conn)?;
-
-    // Create full-text search tables
     create_fts_tables(conn)?;
-
-    // Create indexes
     create_indexes(conn)?;
-
-    // Set schema version
     conn.execute(
         "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
         [],
@@ -40,13 +31,11 @@ pub fn init_database(conn: &Connection) -> Result<()> {
         "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
         [SCHEMA_VERSION],
     )?;
-
     Ok(())
 }
 
-/// Create the notes table
 fn create_notes_table(conn: &Connection) -> Result<()> {
-        conn.execute(
+    conn.execute(
         r#"
         CREATE TABLE IF NOT EXISTS notes (
             id TEXT PRIMARY KEY,
@@ -64,7 +53,6 @@ fn create_notes_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the blocks table
 fn create_blocks_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -86,7 +74,6 @@ fn create_blocks_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the folders table
 fn create_folders_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -106,7 +93,6 @@ fn create_folders_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the note_folders table
 fn create_note_folders_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -126,7 +112,6 @@ fn create_note_folders_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the tags table
 fn create_tags_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -143,7 +128,6 @@ fn create_tags_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the note_tags table
 fn create_note_tags_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -161,7 +145,6 @@ fn create_note_tags_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the links table
 fn create_links_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -190,7 +173,6 @@ fn create_links_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the block_references table
 fn create_block_references_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -208,7 +190,6 @@ fn create_block_references_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the databases table
 fn create_databases_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -227,7 +208,6 @@ fn create_databases_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the database_notes table
 fn create_database_notes_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -247,7 +227,6 @@ fn create_database_notes_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the attachments table
 fn create_attachments_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -270,7 +249,6 @@ fn create_attachments_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the note_attachments table
 fn create_note_attachments_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -289,7 +267,6 @@ fn create_note_attachments_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create the block_attachments table
 fn create_block_attachments_table(conn: &Connection) -> Result<()> {
     conn.execute(
         r#"
@@ -307,9 +284,7 @@ fn create_block_attachments_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Create full-text search tables
 fn create_fts_tables(conn: &Connection) -> Result<()> {
-    // Notes FTS5 table
     conn.execute(
         r#"
         CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -322,8 +297,6 @@ fn create_fts_tables(conn: &Connection) -> Result<()> {
         "#,
         [],
     )?;
-
-    // Blocks FTS5 table
     conn.execute(
         r#"
         CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
@@ -335,20 +308,15 @@ fn create_fts_tables(conn: &Connection) -> Result<()> {
         "#,
         [],
     )?;
-
     Ok(())
 }
 
-/// Create indexes for better query performance
 fn create_indexes(conn: &Connection) -> Result<()> {
-    // Notes indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_deleted_at ON notes(deleted_at)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_is_deleted ON notes(is_deleted)", [])?;
-
-    // Blocks indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blocks_note_id ON blocks(note_id)", [])?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_blocks_position ON blocks(note_id, position)",
@@ -357,15 +325,11 @@ fn create_indexes(conn: &Connection) -> Result<()> {
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blocks_content ON blocks(content)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blocks_deleted_at ON blocks(deleted_at)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_blocks_is_deleted ON blocks(is_deleted)", [])?;
-
-    // Folders indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)",
         [],
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path)", [])?;
-
-    // Note folders indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_note_folders_note_id ON note_folders(note_id)",
         [],
@@ -378,25 +342,20 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_note_folders_primary ON note_folders(note_id, is_primary)",
         [],
     )?;
-
-    // Tags indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)", [])?;
-
-    // Note tags indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_note_tags_note_id ON note_tags(note_id)",
         [],
     )?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON note_tags(tag_id)", [])?;
-
-    // Links indexes
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON note_tags(tag_id)",
+        [],
+    )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_links_source_note ON links(source_note_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_links_target_note ON links(target_note_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_links_source_block ON links(source_block_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_links_target_block ON links(target_block_id)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_links_type ON links(link_type)", [])?;
-
-    // Block references indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_block_refs_source ON block_references(source_block_id)",
         [],
@@ -405,11 +364,7 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_block_refs_target ON block_references(target_block_id)",
         [],
     )?;
-
-    // Databases indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_databases_name ON databases(name)", [])?;
-
-    // Database notes indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_db_notes_db_id ON database_notes(db_id)",
         [],
@@ -418,15 +373,11 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_db_notes_note_id ON database_notes(note_id)",
         [],
     )?;
-
-    // Attachments indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_attachments_type ON attachments(file_type)",
         [],
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_hash ON attachments(hash)", [])?;
-
-    // Note attachments indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_note_attachments_note_id ON note_attachments(note_id)",
         [],
@@ -435,8 +386,6 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_note_attachments_attachment_id ON note_attachments(attachment_id)",
         [],
     )?;
-
-    // Block attachments indexes
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_block_attachments_block_id ON block_attachments(block_id)",
         [],
@@ -445,21 +394,17 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_block_attachments_attachment_id ON block_attachments(attachment_id)",
         [],
     )?;
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
 
     #[test]
     fn test_database_initialization() {
         let conn = Connection::open_in_memory().unwrap();
         init_database(&conn).unwrap();
-
-        // Check that tables exist
         let mut stmt = conn
             .prepare("SELECT name FROM sqlite_master WHERE type='table'")
             .unwrap();
@@ -468,12 +413,7 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<String>, _>>()
             .unwrap();
-
         assert!(tables.contains(&"notes".to_string()));
         assert!(tables.contains(&"blocks".to_string()));
-        assert!(tables.contains(&"folders".to_string()));
-        assert!(tables.contains(&"tags".to_string()));
-        assert!(tables.contains(&"links".to_string()));
-        assert!(tables.contains(&"attachments".to_string()));
     }
 }

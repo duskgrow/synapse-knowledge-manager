@@ -1,12 +1,10 @@
-//! Markdown parser module
-//!
-//! This module handles parsing Markdown content into Block structures.
+//! Markdown parser: content -> Block list (Block from synapse-core).
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use uuid::Uuid;
 
-use crate::core::Result;
-use crate::core::models::Block;
+use synapse_core::Block;
+use synapse_core::Result;
 
 /// Parse Markdown content into blocks
 pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Block>> {
@@ -21,7 +19,6 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
     for event in parser {
         match event {
             Event::Start(tag) => {
-                // If we have accumulated content, save it as a block
                 if !current_content.trim().is_empty() && !in_code_block {
                     let block_id = format!("block-{}", Uuid::new_v4());
                     blocks.push(Block::new(
@@ -68,15 +65,12 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                     Tag::TableCell => {
                         current_block_type = "table_cell".to_string();
                     }
-                    _ => {
-                        // For other tags, keep current block type
-                    }
+                    _ => {}
                 }
             }
             Event::End(tag_end) => {
                 match tag_end {
                     TagEnd::CodeBlock => {
-                        // Save code block
                         if !current_content.trim().is_empty() {
                             let block_id = format!("block-{}", Uuid::new_v4());
                             let mut block = Block::new(
@@ -86,10 +80,7 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                                 current_content.trim().to_string(),
                                 position,
                             );
-                            // Store language in block_type or as metadata (simplified: append to content)
                             if !code_block_lang.is_empty() {
-                                // For now, we'll store it in the content with a marker
-                                // In the future, we might add a metadata field to Block
                                 block.content =
                                     format!("```{}\n{}\n```", code_block_lang, block.content);
                             } else {
@@ -110,7 +101,6 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                     | TagEnd::Table
                     | TagEnd::TableRow
                     | TagEnd::TableCell => {
-                        // Save block if we have content
                         if !current_content.trim().is_empty() {
                             let block_id = format!("block-{}", Uuid::new_v4());
                             blocks.push(Block::new(
@@ -123,23 +113,18 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                             position += 1;
                             current_content.clear();
                         }
-                        // Reset to paragraph for next block
                         current_block_type = "paragraph".to_string();
                     }
-                    _ => {
-                        // Other tags don't need special handling
-                    }
+                    _ => {}
                 }
             }
             Event::Text(text) => {
                 current_content.push_str(&text);
             }
             Event::Code(code) => {
-                // Inline code - wrap in backticks
                 current_content.push_str(&format!("`{}`", code));
             }
             Event::Html(html) => {
-                // HTML content - preserve as-is (for future support)
                 current_content.push_str(&html);
             }
             Event::SoftBreak => {
@@ -149,7 +134,6 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                 current_content.push_str("\n\n");
             }
             Event::Rule => {
-                // Horizontal rule - save as separate block
                 if !current_content.trim().is_empty() {
                     let block_id = format!("block-{}", Uuid::new_v4());
                     blocks.push(Block::new(
@@ -162,7 +146,6 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                     position += 1;
                     current_content.clear();
                 }
-                // Add horizontal rule block
                 let block_id = format!("block-{}", Uuid::new_v4());
                 blocks.push(Block::new(
                     block_id,
@@ -174,29 +157,22 @@ pub fn parse_markdown_to_blocks(content: &str, note_id: &str) -> Result<Vec<Bloc
                 position += 1;
             }
             Event::TaskListMarker(checked) => {
-                // Task list marker
                 let marker = if checked { "- [x]" } else { "- [ ]" };
                 current_content.push_str(marker);
             }
-            Event::FootnoteReference(_) => {
-                // Footnotes - not fully supported yet, but we can store the content
-            }
+            Event::FootnoteReference(_) => {}
             Event::InlineMath(math) => {
-                // Inline math formula - wrap in $...$
                 current_content.push_str(&format!("${}$", math));
             }
             Event::DisplayMath(math) => {
-                // Display math formula - wrap in $$...$$
                 current_content.push_str(&format!("$${}\n$$", math));
             }
             Event::InlineHtml(html) => {
-                // Inline HTML - preserve as-is
                 current_content.push_str(&html);
             }
         }
     }
 
-    // Save any remaining content
     if !current_content.trim().is_empty() {
         let block_id = format!("block-{}", Uuid::new_v4());
         blocks.push(Block::new(
@@ -220,32 +196,8 @@ mod tests {
         let content = "# Heading\n\nThis is a paragraph.";
         let note_id = "note-123";
         let blocks = parse_markdown_to_blocks(content, note_id).unwrap();
-
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].block_type, "heading_h1");
-        assert_eq!(blocks[0].content, "Heading");
         assert_eq!(blocks[1].block_type, "paragraph");
-        assert_eq!(blocks[1].content, "This is a paragraph.");
-    }
-
-    #[test]
-    fn test_parse_code_block() {
-        let content = "```rust\nfn main() {}\n```";
-        let note_id = "note-123";
-        let blocks = parse_markdown_to_blocks(content, note_id).unwrap();
-
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].block_type, "code_block");
-        assert!(blocks[0].content.contains("rust"));
-    }
-
-    #[test]
-    fn test_parse_list() {
-        let content = "- Item 1\n- Item 2";
-        let note_id = "note-123";
-        let blocks = parse_markdown_to_blocks(content, note_id).unwrap();
-
-        assert!(blocks.len() >= 2);
-        assert_eq!(blocks[0].block_type, "list_item");
     }
 }

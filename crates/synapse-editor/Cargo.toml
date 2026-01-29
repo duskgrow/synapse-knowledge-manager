@@ -1,0 +1,17 @@
+[package]
+name = "synapse-editor"
+version = "0.1.0"
+edition = "2024"
+description = "Editor core and Markdown parse/render for Synapse Knowledge Manager"
+authors = ["dustgrow <jz.long@qq.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dustgrow/synapse-knowledge-manager"
+
+[dependencies]
+synapse-core = { path = "../synapse-core" }
+pulldown-cmark = "0.13.0"
+uuid = { version = "1.19.0", features = ["v4"] }
+
+[features]
+default = []
+vim = []

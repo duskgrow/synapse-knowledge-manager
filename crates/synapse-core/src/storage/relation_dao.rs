@@ -2,7 +2,7 @@
 
 use rusqlite::{params, Connection};
 
-use crate::core::Error;
+use crate::Error;
 
 /// Note-Folder relation DAO
 pub struct NoteFolderDao;
@@ -262,7 +262,7 @@ mod tests {
 
         // Create test note and folder
         use crate::storage::dao::{NoteDao, FolderDao};
-        use crate::core::models::{Note, Folder};
+        use crate::models::{Note, Folder};
 
         let note = Note::new("note-1".to_string(), "Test".to_string(), "notes/test.md".to_string());
         NoteDao::create(conn, &note).unwrap();
@@ -291,7 +291,7 @@ mod tests {
         let conn = db.conn();
 
         use crate::storage::dao::{NoteDao, TagDao};
-        use crate::core::models::{Note, Tag};
+        use crate::models::{Note, Tag};
 
         let note = Note::new("note-1".to_string(), "Test".to_string(), "notes/test.md".to_string());
         NoteDao::create(conn, &note).unwrap();

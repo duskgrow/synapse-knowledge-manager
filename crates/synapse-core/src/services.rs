@@ -1,7 +1,7 @@
-//! Service layer for core business logic
+//! Service layer for core business logic.
 //!
-//! This module provides high-level business logic services that coordinate
-//! between file system operations and database operations.
+//! Services take `ctx: &ServiceContext` (ctx passed in, not held).
+//! Storage is abstracted behind [`crate::storage::StorageBackend`].
 
 use std::fs;
 use std::io::Read;
@@ -10,26 +10,26 @@ use std::path::{Path, PathBuf};
 use mime_guess::from_path;
 use sha2::{Digest, Sha256};
 
-use crate::core::models::*;
-use crate::core::{Error, Result};
+use crate::models::*;
 use crate::storage::{
     AttachmentDao, BlockDao, DatabaseManager, FolderDao, LinkDao, NoteDao, TagDao,
 };
 use crate::storage::{BlockAttachmentDao, NoteAttachmentDao, NoteFolderDao, NoteTagDao};
+use crate::{Error, Result};
 
-/// Service context that holds database and file system paths
+/// Service context: holds storage backend and data directory. Passed into each service call.
+/// Currently holds SQLite (DatabaseManager); storage trait is defined for future swap.
 pub struct ServiceContext {
     db: DatabaseManager,
     data_dir: PathBuf,
 }
 
 impl ServiceContext {
-    /// Create a new service context
+    /// Create a new service context with SQLite at the given paths.
     pub fn new<P: AsRef<Path>>(db_path: P, data_dir: P) -> Result<Self> {
         let db = DatabaseManager::new(db_path)?;
         let data_dir = data_dir.as_ref().to_path_buf();
 
-        // Ensure data directory exists
         fs::create_dir_all(&data_dir)?;
         fs::create_dir_all(data_dir.join("notes"))?;
         fs::create_dir_all(data_dir.join("attachments"))?;
@@ -37,12 +37,12 @@ impl ServiceContext {
         Ok(Self { db, data_dir })
     }
 
-    /// Get database connection
+    /// Database connection.
     pub fn conn(&self) -> &rusqlite::Connection {
         self.db.conn()
     }
 
-    /// Get data directory path
+    /// Data directory path.
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -254,13 +254,6 @@ impl NoteService {
     }
 }
 
-/// Note with content loaded from file
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct NoteWithContent {
-    pub note: Note,
-    pub content: String,
-}
-
 /// Tag service for managing tags
 pub struct TagService;
 
@@ -313,7 +306,7 @@ impl TagService {
 
     /// Get all notes with a tag
     pub fn get_notes(ctx: &ServiceContext, tag_id: &str) -> Result<Vec<Note>> {
-        let note_ids = crate::storage::NoteTagDao::get_notes_with_tag(ctx.conn(), tag_id)?;
+        let note_ids = NoteTagDao::get_notes_with_tag(ctx.conn(), tag_id)?;
         let mut notes = Vec::new();
 
         for note_id in note_ids {
